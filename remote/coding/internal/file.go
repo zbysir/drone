@@ -28,7 +28,8 @@ type File struct {
 }
 
 func (c *Client) GetFile(globalKey, projectName, ref, path string) ([]byte, error) {
-	u := fmt.Sprintf("/user/%s/project/%s/git/blob/%s/%s", globalKey, projectName, ref, path)
+	// 2020/5/14 coding 修改了接口
+	u := fmt.Sprintf("/user/%s/project/%s/depot/%s/git/blob/%s/%s", globalKey, projectName, projectName, ref, path)
 	resp, err := c.Get(u, nil)
 	if err != nil {
 		return nil, err

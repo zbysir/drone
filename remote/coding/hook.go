@@ -26,10 +26,12 @@ import (
 )
 
 const (
-	hookEvent = "X-Coding-Event"
-	hookPush  = "push"
-	hookPR    = "pull_request"
-	hookMR    = "merge_request"
+	hookEvent   = "X-Coding-Event"
+	hookVersion = "X-Coding-WebHook-Version"
+	hookPush    = "push"
+	hookPR      = "pull_request"
+	hookMR      = "merge_request"
+	hookMR2     = "merge request"
 )
 
 type User struct {
@@ -45,6 +47,14 @@ type Repository struct {
 	Owner    *User  `json:"owner"`
 }
 
+type RepositoryV2 struct {
+	Name     string `json:"name"`
+	HttpsURL string `json:"https_url"`
+	SshURL   string `json:"ssh_url"`
+	HtmlUrl  string `json:"html_url"`
+	Owner    UserV2 `json:"owner"`
+}
+
 type Committer struct {
 	Email string `json:"email"`
 	Name  string `json:"name"`
@@ -54,6 +64,12 @@ type Commit struct {
 	SHA          string     `json:"sha"`
 	ShortMessage string     `json:"short_message"`
 	Committer    *Committer `json:"committer"`
+}
+
+type CommitV2 struct {
+	Id        string    `json:"id"`
+	Message   string    `json:"message"`
+	Committer Committer `json:"committer"`
 }
 
 type PullRequest MergeRequest
@@ -81,6 +97,21 @@ type PushHook struct {
 	User       *User       `json:"user"`
 }
 
+type PushHookV2 struct {
+	Event      string        `json:"event"`
+	Repository *RepositoryV2 `json:"repository"`
+	Ref        string        `json:"ref"`
+	Before     string        `json:"before"`
+	After      string        `json:"after"`
+	HeadCommit CommitV2      `json:"head_commit"`
+	Sender     UserV2        `json:"sender"`
+}
+
+type UserV2 struct {
+	AvatarUrl string `json:"avatar_url"`
+	Name      string `json:"name"`
+}
+
 type PullRequestHook struct {
 	Event       string       `json:"event"`
 	Repository  *Repository  `json:"repository"`
@@ -93,6 +124,11 @@ type MergeRequestHook struct {
 	MergeRequest *MergeRequest `json:"merge_request"`
 }
 
+type MergeRequestHookV2 struct {
+	Repository   RepositoryV2 `json:"repository"`
+	MergeRequest MergeRequest `json:"merge_request"`
+}
+
 func parseHook(r *http.Request) (*model.Repo, *model.Build, error) {
 	raw, err := ioutil.ReadAll(r.Body)
 	defer r.Body.Close()
@@ -100,14 +136,27 @@ func parseHook(r *http.Request) (*model.Repo, *model.Build, error) {
 		return nil, nil, err
 	}
 
-	switch r.Header.Get(hookEvent) {
-	case hookPush:
-		return parsePushHook(raw)
-	case hookPR:
-		return parsePullRequestHook(raw)
-	case hookMR:
-		return parseMergeReuqestHook(raw)
+	switch r.Header.Get(hookVersion) {
+	case "v2":
+		print("\nraw: " + string(raw) + "\n")
+
+		switch r.Header.Get(hookEvent) {
+		case hookPush:
+			return parsePushHookV2(raw)
+		case hookMR, hookMR2:
+			return parseMergeReuqestHookV2(raw)
+		}
+	default:
+		switch r.Header.Get(hookEvent) {
+		case hookPush:
+			return parsePushHook(raw)
+		case hookPR:
+			return parsePullRequestHook(raw)
+		case hookMR:
+			return parseMergeReuqestHook(raw)
+		}
 	}
+
 	return nil, nil, nil
 }
 
@@ -145,6 +194,23 @@ func convertRepository(repo *Repository) (*model.Repo, error) {
 	}, nil
 }
 
+func convertRepositoryV2(repo *RepositoryV2) (*model.Repo, error) {
+	// tricky stuff for a team project without a team owner instead of a user owner
+	re := regexp.MustCompile(`git@.+:([^/]+)/.+\.git`)
+	matches := re.FindStringSubmatch(repo.SshURL)
+	if len(matches) != 2 {
+		return nil, fmt.Errorf("Unable to resolve owner from ssh url %q", repo.SshURL)
+	}
+
+	return &model.Repo{
+		Owner:    matches[1],
+		Name:     repo.Name,
+		FullName: projectFullName(repo.Owner.Name, repo.Name),
+		Link:     repo.HtmlUrl,
+		Kind:     model.RepoGit,
+	}, nil
+}
+
 func parsePushHook(raw []byte) (*model.Repo, *model.Build, error) {
 	hook := &PushHook{}
 	err := json.Unmarshal(raw, hook)
@@ -173,6 +239,38 @@ func parsePushHook(raw []byte) (*model.Repo, *model.Build, error) {
 		Email:   lastCommit.Committer.Email,
 		Avatar:  hook.User.Avatar,
 		Author:  hook.User.GlobalKey,
+		Remote:  hook.Repository.HttpsURL,
+	}
+	return repo, build, nil
+}
+
+func parsePushHookV2(raw []byte) (*model.Repo, *model.Build, error) {
+	hook := &PushHookV2{}
+	err := json.Unmarshal(raw, hook)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// no build triggered when removing ref
+	if hook.After == "0000000000000000000000000000000000000000" {
+		return nil, nil, nil
+	}
+
+	repo, err := convertRepositoryV2(hook.Repository)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	build := &model.Build{
+		Event:   model.EventPush,
+		Commit:  hook.After,
+		Ref:     hook.Ref,
+		Link:    fmt.Sprintf("%s/git/commit/%s", hook.Repository.HtmlUrl, hook.After),
+		Branch:  strings.Replace(hook.Ref, "refs/heads/", "", -1),
+		Message: hook.HeadCommit.Message,
+		Email:   hook.HeadCommit.Committer.Email,
+		Avatar:  hook.Sender.AvatarUrl,
+		Author:  hook.Sender.Name,
 		Remote:  hook.Repository.HttpsURL,
 	}
 	return repo, build, nil
@@ -222,6 +320,38 @@ func parseMergeReuqestHook(raw []byte) (*model.Repo, *model.Build, error) {
 	}
 
 	repo, err := convertRepository(hook.Repository)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	build := &model.Build{
+		Event:   model.EventPull,
+		Commit:  hook.MergeRequest.CommitSHA,
+		Link:    hook.MergeRequest.WebURL,
+		Ref:     fmt.Sprintf("refs/merge/%d/MERGE", int(hook.MergeRequest.Number)),
+		Branch:  hook.MergeRequest.TargetBranch,
+		Message: hook.MergeRequest.Body,
+		Author:  hook.MergeRequest.User.GlobalKey,
+		Avatar:  hook.MergeRequest.User.Avatar,
+		Title:   hook.MergeRequest.Title,
+		Remote:  hook.Repository.HttpsURL,
+		Refspec: fmt.Sprintf("%s:%s", hook.MergeRequest.SourceBranch, hook.MergeRequest.TargetBranch),
+	}
+	return repo, build, nil
+}
+
+func parseMergeReuqestHookV2(raw []byte) (*model.Repo, *model.Build, error) {
+	hook := &MergeRequestHookV2{}
+	err := json.Unmarshal(raw, hook)
+	if err != nil {
+		return nil, nil, err
+	}
+	if hook.MergeRequest.Status != "CANMERGE" ||
+		(hook.MergeRequest.Action != "create" && hook.MergeRequest.Action != "synchronize") {
+		return nil, nil, nil
+	}
+
+	repo, err := convertRepositoryV2(&hook.Repository)
 	if err != nil {
 		return nil, nil, err
 	}
