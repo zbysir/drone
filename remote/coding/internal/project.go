@@ -89,6 +89,13 @@ func (c *Client) GetProjectList() ([]*Project, error) {
 
 	projectList := make([]*Project, 0)
 	projectList = append(projectList, data.List...)
+	// 按名字去重
+	// 这是由于coding的bug, 可能API会返回重复的项目
+	projectName := map[string]struct{}{}
+	for _, v := range projectList {
+		projectName[v.Name] = struct{}{}
+	}
+
 	for i := 2; i <= data.TotalPage; i++ {
 		params := url.Values{}
 		params.Set("page", fmt.Sprintf("%d", i))
@@ -101,7 +108,17 @@ func (c *Client) GetProjectList() ([]*Project, error) {
 		if err != nil {
 			return nil, APIClientErr{"fail to parse project list data", u, err}
 		}
-		projectList = append(projectList, data.List...)
+
+		for _, v := range data.List {
+			if _, ok := projectName[v.Name]; !ok {
+				projectList = append(projectList, v)
+				projectName[v.Name] = struct{}{}
+			}
+		}
 	}
+
+	fmt.Printf("len(data.List): %d\n", len(data.List))
+	fmt.Printf("len(projectList): %d\n", len(projectList))
+
 	return projectList, nil
 }
