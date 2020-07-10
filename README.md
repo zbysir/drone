@@ -39,3 +39,11 @@ Documentation and Other Links:
 * Usage Documentation [docs.drone.io/getting-started](http://docs.drone.io/getting-started/)
 * Plugin Index [plugins.drone.io](http://plugins.drone.io/)
 * Getting Help [docs.drone.io/getting-help](http://docs.drone.io/getting-help/)
+
+--------- 
+
+### zbysir/drone
+
+更新:
+- 支持coding.net webhookv2 (v1已经不再维护)
+- 支持最新的 coding API: 从仓库获取文件 (此接口有不兼容变动会导致drone报错).

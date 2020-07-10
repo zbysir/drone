@@ -58,7 +58,7 @@ func (c *Client) GetProject(globalKey, projectName string) (*Project, error) {
 }
 
 func (c *Client) GetDepot(globalKey, projectName string) (*Depot, error) {
-	u := fmt.Sprintf("/user/%s/project/%s/git", globalKey, projectName)
+	u := fmt.Sprintf("/user/%s/project/%s/depot/%s/git", globalKey, projectName, projectName)
 	resp, err := c.Get(u, nil)
 	if err != nil {
 		return nil, err
@@ -116,9 +116,6 @@ func (c *Client) GetProjectList() ([]*Project, error) {
 			}
 		}
 	}
-
-	fmt.Printf("len(data.List): %d\n", len(data.List))
-	fmt.Printf("len(projectList): %d\n", len(projectList))
 
 	return projectList, nil
 }

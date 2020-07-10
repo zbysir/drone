@@ -15,7 +15,6 @@
 package server
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/drone/drone/model"
@@ -42,13 +41,9 @@ func (s *syncer) Sync(user *model.User) error {
 		return err
 	}
 
-	fmt.Printf("len(repos): %d\n", len(repos))
-
 	if s.limiter != nil {
 		repos = s.limiter.LimitRepos(user, repos)
 	}
-
-	fmt.Printf("len(repos): %d\n", len(repos))
 
 	var perms []*model.Perm
 	for _, repo := range repos {

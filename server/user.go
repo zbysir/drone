@@ -95,9 +95,9 @@ func GetRepos(c *gin.Context) {
 			limiter: Config.Services.Limiter,
 		}
 		if err := sync.Sync(user); err != nil {
-			logrus.Debugf("sync error: %s: %s", user.Login, err)
+			logrus.Errorf("sync error: %s: %s", user.Login, err)
 		} else {
-			logrus.Debugf("sync complete: %s", user.Login)
+			logrus.Errorf("sync complete: %s", user.Login)
 		}
 	}
 
